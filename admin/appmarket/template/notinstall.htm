@@ -21,12 +21,17 @@
 					<!--{loop $list $value}-->
 					<tr> 
 						<td>
+							<!--{if $value['fileext']}-->
+							<span class="appicon" style="float: left;padding-right: 5px;"><img src="$value[appico]" style="margin:0" /></span>
+							<span class="dcolor">$value[appname]</span>
+							<!--{else}-->
 							<a href="$value[appurl]" target="_blank" class="appicon" style="float: left;padding-right: 5px;"><img src="$value[appico]" style="margin:0" /></a>
 							<!--{if $value[appadminurl]}-->
 							<a href="$value[appadminurl]" target="_blank" class="dcolor">$value[appname]</a>
 							<!--{else}-->
 							<a href="$value[appurl]" target="_blank" class="dcolor">$value[appname]</a>
 							<!--{/if}--> 
+							<!--{/if}-->
 							<small class="text-muted" title="{lang version}">$value[version]</small>    
 							<div class="appdesc form-text" title="$value['appdesc']"> {eval echo $value['appdesc']?$value['appdesc']:lang('none');}</div>
 						</td>

@@ -1,0 +1,112 @@
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    '' close;
+}
+
+map $http_x_forwarded_proto $forwarded_proto {
+    default $http_x_forwarded_proto;
+    '' $scheme;
+}
+
+# The gateway listens on container port 80 but may be published on another
+# browser-visible port (for example 127.0.0.1:8080).  FileView uses this
+# header when generating absolute preview URLs, so retain that public port.
+map $http_host $forwarded_port {
+    default $server_port;
+    ~:(?<client_port>[0-9]+)$ $client_port;
+}
+
+server {
+    listen 80 default_server;
+    # The Dzz FileView plugin gives FileView the browser-visible Dzz URL.
+    # Accept the mapped port inside the compose network too, without exposing
+    # an additional host port.
+    listen 8080;
+    server_name _;
+    client_max_body_size 1g;
+    proxy_read_timeout 3600s;
+    proxy_send_timeout 3600s;
+
+    # Compose assigns a new IP when a service is recreated.  Use Docker's
+    # embedded DNS with variable-based proxy_pass targets so a long-running
+    # gateway does not retain a stale upstream IP after `up --build`.
+    resolver 127.0.0.11 ipv6=off valid=30s;
+    set $dzz_app_upstream app:80;
+    set $fileview_upstream fileview:80;
+    set $onlyoffice_upstream onlyoffice:80;
+
+    # This endpoint is only reachable from Nginx auth_request subrequests.
+    # It asks DzzOffice to validate the browser's existing login cookie.
+    location = /_internal/dzz-gateway-auth {
+        internal;
+        proxy_pass http://$dzz_app_upstream/index.php?mod=gateway&op=authcheck;
+        proxy_pass_request_body off;
+        proxy_set_header Content-Length "";
+        proxy_set_header Cookie $http_cookie;
+        proxy_set_header X-Dzz-Gateway-Secret "$DZZ_GATEWAY_AUTH_SECRET";
+        proxy_set_header X-Original-Method $request_method;
+        proxy_set_header X-Original-URI $request_uri;
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $forwarded_proto;
+        proxy_set_header X-Forwarded-Host $http_host;
+    }
+
+    location = /apps/fileview {
+        return 308 /apps/fileview/;
+    }
+
+    # Follow FileView's official subdirectory proxy pattern.  Keep FileView
+    # private to the compose network and publish it only through this route.
+    location ^~ /apps/fileview/ {
+        include /etc/nginx/gateway-auth/active.conf;
+        rewrite ^/apps/fileview/(.*)$ /$1 break;
+        proxy_pass http://$fileview_upstream;
+        proxy_http_version 1.1;
+        # FileView gives an explicit port in Host precedence over
+        # X-Forwarded-Port when it builds absolute preview URLs.
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header REMOTE-HOST $remote_addr;
+        proxy_set_header X-Forwarded-Proto $forwarded_proto;
+        proxy_set_header X-Forwarded-Port $forwarded_port;
+        proxy_set_header X-Forwarded-Host $http_host;
+        proxy_set_header X-Forwarded-Prefix /apps/fileview;
+    }
+
+    location = /apps/onlyoffice {
+        return 308 /apps/onlyoffice/;
+    }
+
+    # Follow ONLYOFFICE's official "virtual path" proxy pattern.  The
+    # trailing slash on proxy_pass strips the public prefix for the upstream,
+    # while X-Forwarded-Host makes Document Server generate URLs with it.
+    location ^~ /apps/onlyoffice/ {
+        include /etc/nginx/gateway-auth/active.conf;
+        rewrite ^/apps/onlyoffice/(.*)$ /$1 break;
+        proxy_pass http://$onlyoffice_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $forwarded_proto;
+        proxy_set_header X-Forwarded-Host $http_host/apps/onlyoffice;
+        proxy_request_buffering off;
+        proxy_buffering off;
+    }
+
+    # The fallback is intentionally unchanged: all ordinary DzzOffice paths,
+    # including PHP entry points and static assets, still go to the Dzz app.
+    location / {
+        proxy_pass http://$dzz_app_upstream$request_uri;
+        proxy_http_version 1.1;
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $forwarded_proto;
+        proxy_set_header X-Forwarded-Host $http_host;
+    }
+}

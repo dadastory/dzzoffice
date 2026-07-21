@@ -164,8 +164,13 @@ function processAppXml($xmlContent, $identifier, &$list, $identifiers) {
     try {
         $apparray = getimportdata('Dzz! app', 0, 1, $xmlContent);
         $value = $apparray['app'] ?? [];
-        
+
         if (!empty($value['appname'])) {
+            if (!empty($value['appico'])
+                && $value['appico'] != 'dzz/images/default/icodefault.png'
+                && !preg_match("/^(?:data:|https?|ftp|mms):/i", $value['appico'])) {
+                $value['appico'] = $_G['setting']['attachurl'] . $value['appico'];
+            }
             $value['appurl'] = replace_canshu($value['appurl']);
             $value['appadminurl'] = replace_canshu($value['appadminurl']);
             $value['appname'] = dhtmlspecialchars($value['appname']);

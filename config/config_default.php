@@ -160,6 +160,7 @@ $_config['cookie']['cookiepath'] 		= '/'; 		// COOKIE作用路径
 
 // 站点安全设置
 $_config['security']['authkey']	            = 'dzzoffice';	// 站点加密密钥
+$_config['security']['gateway_auth_secret']  = '';			// 网关会话校验密钥；留空则不启用接口
 $_config['security']['urlxssdefend']		= true;		// 自身 URL XSS 防御
 $_config['security']['attackevasive']		= 0;		// CC 攻击防御 1|2|4|8
 

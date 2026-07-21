@@ -1,0 +1,96 @@
+name: dzzoffice-local
+
+services:
+  db:
+    image: mariadb:lts
+    command: --transaction-isolation=READ-COMMITTED
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-dzzoffice}
+      MARIADB_DATABASE: ${MYSQL_DATABASE:-dzzoffice}
+      MARIADB_USER: ${MYSQL_USER:-dzzoffice}
+      MARIADB_PASSWORD: ${MYSQL_PASSWORD:-dzzoffice}
+      MARIADB_AUTO_UPGRADE: "1"
+      MARIADB_DISABLE_UPGRADE_BACKUP: "1"
+    volumes:
+      - ./runtime/mariadb:/var/lib/mysql
+    networks:
+      - dzz-internal
+
+  redis:
+    image: redis:alpine
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+    volumes:
+      - ./runtime/redis:/data
+    networks:
+      - dzz-internal
+
+  app:
+    build:
+      context: ..
+      dockerfile: docker/dzzoffice/Dockerfile
+    restart: unless-stopped
+    environment:
+      MYSQL_HOST: db
+      REDIS_HOST: redis
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-dzzoffice}
+      MYSQL_USER: ${MYSQL_USER:-dzzoffice}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-dzzoffice}
+      DZZ_GATEWAY_AUTH_SECRET: ${DZZ_GATEWAY_AUTH_SECRET:-}
+    volumes:
+      - ./runtime/dzzoffice/site:/var/www/html
+    depends_on:
+      - db
+      - redis
+    networks:
+      - dzz-internal
+
+  fileview:
+    image: basemetas/fileview:latest
+    restart: unless-stopped
+    networks:
+      - dzz-internal
+
+  onlyoffice:
+    image: onlyoffice/documentserver:latest
+    restart: unless-stopped
+    environment:
+      JWT_ENABLED: "true"
+      JWT_SECRET: ${ONLYOFFICE_JWT_SECRET:-local-development-change-me}
+      JWT_HEADER: AuthorizationJwt
+      JWT_IN_BODY: "true"
+      WOPI_ENABLED: "false"
+      EXAMPLE_ENABLED: "false"
+    shm_size: 1gb
+    volumes:
+      - ./runtime/onlyoffice/data:/var/www/onlyoffice/Data
+      - ./runtime/onlyoffice/logs:/var/log/onlyoffice
+      - ./runtime/onlyoffice/lib:/var/lib/onlyoffice
+    networks:
+      - dzz-internal
+
+  gateway:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    environment:
+      DZZ_GATEWAY_AUTH_MODE: ${DZZ_GATEWAY_AUTH_MODE:-off}
+      DZZ_GATEWAY_AUTH_SECRET: ${DZZ_GATEWAY_AUTH_SECRET:-}
+    ports:
+      - "127.0.0.1:${DZZ_HTTP_PORT:-8080}:80"
+    volumes:
+      - ./gateway/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./gateway/auth:/etc/nginx/gateway-auth-src:ro
+      - ./gateway/entrypoint/40-select-gateway-auth.sh:/docker-entrypoint.d/40-select-gateway-auth.sh:ro
+    depends_on:
+      - app
+      - fileview
+      - onlyoffice
+    networks:
+      dzz-internal:
+        aliases:
+          - dzz.localhost
+
+networks:
+  dzz-internal:
+    driver: bridge

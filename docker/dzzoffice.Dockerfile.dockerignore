@@ -1,0 +1,11 @@
+.git
+.github
+.idea
+.agents
+.codex
+.docker
+docker
+docs
+tests
+*.log
+*.tmp
